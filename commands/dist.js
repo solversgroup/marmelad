@@ -1,4 +1,8 @@
 const gulp = require('gulp');
+const removeComments = require ("gulp-strip-css-comments");
+const cssnano = require ("gulp-cssnano");
+const uglify = require('gulp-uglify');
+const rename = require('gulp-rename');
 const postHTML = require('gulp-posthtml');
 const attrsSorter = require('posthtml-attrs-sorter');
 const pretty = require('gulp-pretty-html');
@@ -6,6 +10,8 @@ const ora = require('ora');
 
 const hasher = require('../modules/posthtml/hasher');
 const getSettings = require('../modules/get-settings');
+
+
 
 module.exports = () => {
   const settings = getSettings();
@@ -73,6 +79,42 @@ module.exports = () => {
       done();
     });
   });
+  
+  gulp.task('compression:css', (done) => {
+    const compressionCss = ora('Compression css started').start();
+    const stream = gulp.src(`${settings.paths.dist}/css/*.css`)
+    .pipe(cssnano({
+          zindex: false,
+          discardComments: {
+              removeAll: true
+          }
+    }))
+    .pipe(removeComments())
+    .pipe(rename({
+        suffix: ".min",
+        extname: ".css"
+    }))
+    .pipe(gulp.dest(`${settings.paths.dist}/css`))
+    stream.on('end', () => {
+      compressionCss.succeed('Compression css done');
+      done();
+    });
+  });
 
-  gulp.series('format:html', 'posthtml:tools')();
+  gulp.task('compression:js', (done) => {
+    const compressionCss = ora('Compression js started').start();
+    const stream = gulp.src(`${settings.paths.dist}/js/app.js`)
+    .pipe(uglify())
+    .pipe(rename({
+        suffix: ".min",
+        extname: ".js"
+    }))
+    .pipe(gulp.dest(`${settings.paths.dist}/js`))
+    stream.on('end', () => {
+      compressionCss.succeed('Compression js done');
+      done();
+    });
+  });
+
+  gulp.series('format:html', 'posthtml:tools', 'compression:css', 'compression:js')();
 };
