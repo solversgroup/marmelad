@@ -82,7 +82,7 @@ module.exports = () => {
   
   gulp.task('compression:css', (done) => {
     const compressionCss = ora('Compression css started').start();
-    const stream = gulp.src(`${settings.paths.dist}/css/*.css`)
+    const stream = gulp.src(`${settings.paths.dist}/css/app.css`)
     .pipe(cssnano({
           zindex: false,
           discardComments: {
