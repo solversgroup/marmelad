@@ -1,65 +1,26 @@
-const PluginError = require('plugin-error');
-const replaceExtension = require('replace-ext');
-const nunjucks = require('nunjucks');
-const through = require('through2');
+const path = require('path');
+const fs = require('fs-extra');
+const Nunjucks = require('nunjucks');
 
-const PLUGIN_NAME = 'gulp-nunjucks-a101';
+class Templater {
+  constructor() {
+    this.store = {};
+    this.env = null;
+    this.templatePaths = null;
+    this.templaterLoader = null;
+    this.Nunjucks = Nunjucks;
+  }
 
-function nunjucksBuild(opts) {
-  return through.obj((file, enc, cb) => {
-    if (file.isNull()) {
-      return cb(null, file);
-    }
+  init(templatePaths) {
+    this.templatePaths = fs.readdirSync(templatePaths).map((blockPath) => path.join(templatePaths, blockPath));
 
-    if (file.isStream()) {
-      return cb(new PluginError(PLUGIN_NAME, 'Streams are not supported'));
-    }
-
-    const options = {
-      autoescape: false,
-      locals: {},
-      searchPaths: [],
-      ...opts,
-    };
-
-    const str = file.contents.toString('utf8');
-    const data = file.data ? file.data : {};
-    const fm = file.frontMatter ? file.frontMatter : {};
-    const context = { ...options.locals, ...data, ...fm };
-
-    const loader = new nunjucks.FileSystemLoader(options.searchPaths, {
-      watch: false,
+    this.templaterLoader = new this.Nunjucks.FileSystemLoader(this.templatePaths, {
+      watch: true,
       noCache: false,
     });
 
-    let env = new nunjucks.Environment(loader, (() => {
-      const envOptions = {};
-      ['autoescape', 'tags'].forEach((opt) => {
-        if (Object.prototype.hasOwnProperty.call(options, opt)) {
-          envOptions[opt] = options[opt];
-        }
-      });
-      return envOptions;
-    })());
-
-    if (options.setUp && typeof options.setUp === 'function') {
-      env = options.setUp(env);
-    }
-
-    env.renderString(str, context, (err, res) => {
-      if (err) {
-        return cb(new PluginError(PLUGIN_NAME, err));
-      }
-
-      file.contents = Buffer.from(res);
-
-      if (options.ext) {
-        file.path = replaceExtension(file.path, opts.ext);
-      }
-
-      cb(null, file);
-    });
-  });
+    this.env = new this.Nunjucks.Environment(this.templaterLoader);
+  }
 }
 
-module.exports = nunjucksBuild;
+module.exports = Templater;

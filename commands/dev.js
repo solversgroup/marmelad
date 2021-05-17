@@ -29,12 +29,18 @@ const GLOB = require('glob');
 const branchName = require('current-git-branch');
 const pkg = require('../package.json');
 const pipeErrorStop = require('../modules/pipe-error-stop');
+
 const TCI = require('../modules/tci');
-const DB = new (require('../modules/database'))();
-const LAGMAN = new (require('../modules/nunjucks/lagman'))();
+
+const Database = require('../modules/database'); // eslint-disable-line
+const DB = new Database();
+
+const Lagman = require('../modules/nunjucks/lagman'); // eslint-disable-line
+const LAGMAN = new Lagman();
+
 const authArgs = require('../modules/authArgs');
 const getIconsNamesList = require('../modules/iconsNames');
-const getNunJucksBlocks = require('../modules/nunjucks/getBlocks');
+
 const getSettings = require('../modules/get-settings');
 
 console.log(`Marmelad Warmed at ${Math.round(performance.now())}ms\n`);
@@ -52,7 +58,10 @@ module.exports = (opts) => {
     }),
   });
 
-  LAGMAN.init(settings);
+  LAGMAN.init({
+    _pages: settings.paths._pages,
+    _blocks: settings.paths._blocks,
+  });
 
   /**
    * Server Auth
@@ -75,17 +84,34 @@ module.exports = (opts) => {
   /**
    * Nunjucks
    */
+  const frontMatter = require('gulp-front-matter');
+  const tap = require('gulp-tap');
+
+  const gulpPostHTML = require('../modules/posthtml/gulp');
+  const posthtmlBEM = require('../modules/posthtml/bem');
+
+  const gulpNunjucks = require('../modules/nunjucks/gulp');
+  const getDepBlocksSet = require('../modules/nunjucks/getDepBlocks');
+
+  const Templater = require('../modules/nunjucks');
+  const templater = new Templater();
+
+  const Incw = require('../modules/nunjucks/globals/incw');
+
+  templater.init(settings.paths._blocks);
+
+  templater.env.addFilter('translit', require('../modules/nunjucks/filters/translit'));
+  templater.env.addFilter('limitto', require('../modules/nunjucks/filters/limitto'));
+  templater.env.addFilter('bodyClass', require('../modules/nunjucks/filters/bodyclass'));
+
+  templater.env.addGlobal('_icon', settings.iconizer.icon);
+  templater.env.addGlobal('_fns', settings._fns);
+  templater.env.addGlobal('inlineSvgSprite', require('../modules/nunjucks/globals/inlineSvgSprite'));
+
+  templater.env.addExtension('incw', new Incw(templater.env, DB.store, settings));
+
   gulp.task('nunjucks', (done) => {
     const njkStartPerf = performance.now();
-
-    const postHTML = require('gulp-posthtml');
-    const frontMatter = require('gulp-front-matter');
-    const tap = require('gulp-tap');
-    const cheerio = require('cheerio');
-
-    const nunjucks = require('../modules/nunjucks');
-    const bem = require('../modules/posthtml/bem');
-    const Incw = require('../modules/nunjucks/globals/incw');
 
     let templateName = '';
     let hasError = false;
@@ -106,22 +132,9 @@ module.exports = (opts) => {
         templateName = path.basename(file.path);
       }))
       .pipe(frontMatter())
-      .pipe(nunjucks({
-        searchPaths: getNunJucksBlocks(settings.paths._blocks),
+      .pipe(gulpNunjucks(templater, {
         locals: DB.store,
         ext: '.html',
-        setUp(env) {
-          env.addFilter('translit', require('../modules/nunjucks/filters/translit'));
-          env.addFilter('limitto', require('../modules/nunjucks/filters/limitto'));
-          env.addFilter('bodyClass', require('../modules/nunjucks/filters/bodyclass'));
-          env.addGlobal('_icon', settings.iconizer.icon);
-          env.addGlobal('_fns', settings._fns);
-          env.addGlobal('inlineSvgSprite', require('../modules/nunjucks/globals/inlineSvgSprite'));
-
-          env.addExtension('incw', new Incw(env, DB.store, settings));
-
-          return env;
-        },
       }))
       .pipe(pipeErrorStop({
         errorCallback: (error) => {
@@ -135,26 +148,20 @@ module.exports = (opts) => {
         },
       }))
       .pipe(tap((file) => {
-        try {
-          const $ = cheerio.load(file.contents.toString());
-          const blocks = $('[block]');
-          const pageName = LAGMAN.getName(file.path);
-          const blocksSet = new Set();
+        getDepBlocksSet(file, (err, blocksSet) => {
+          if (blocksSet) {
+            const pageName = LAGMAN.getName(file.path);
 
-          blocks.each((index, block) => {
-            blocksSet.add($(block).attr('block'));
-          });
-
-          LAGMAN.refresh(pageName, 'pages', blocksSet);
-        } catch (error) {
-          hasError = true;
-          bsSP.sockets.emit('error:message', error);
-          console.log(error);
-        }
+            LAGMAN.refresh(pageName, 'pages', blocksSet);
+          }
+        });
       }))
-      .pipe(postHTML([
-        bem(settings.app.beml),
+      .pipe(gulpPostHTML([
+        posthtmlBEM(settings.app.beml),
       ]))
+      .pipe(rename({
+        dirname: '',
+      }))
       .pipe(gulp.dest(settings.paths.dist));
 
     stream.on('end', () => {
@@ -428,10 +435,10 @@ module.exports = (opts) => {
       }))
       .pipe(concat('plugins.min.css'))
       .pipe(postcss([
-        viewportHeightCorrection(),
-        momentumScrolling(),
-        flexBugsFixes(),
-        combineAndSortMQ(),
+        // viewportHeightCorrection(),
+        // momentumScrolling(),
+        // flexBugsFixes(),
+        // combineAndSortMQ(),
       ], { from: undefined }))
       .pipe(gulp.dest(`${settings.paths.storage}/css`))
       .on('end', () => {
@@ -476,13 +483,13 @@ module.exports = (opts) => {
         indentedSyntax: true,
       })))
       .pipe(postcss([
-        viewportHeightCorrection(),
-        combineAndSortMQ(postcssOpts.sortMQ),
-        momentumScrolling(postcssOpts.momentumScrolling),
-        flexBugsFixes(),
-        inlineSvg(postcssOpts.inlineSvg),
-        easingGradients(postcssOpts.easingGradients),
-        autoprefixer(settings.app.autoprefixer),
+        // viewportHeightCorrection(),
+        // combineAndSortMQ(postcssOpts.sortMQ),
+        // momentumScrolling(postcssOpts.momentumScrolling),
+        // flexBugsFixes(),
+        // inlineSvg(postcssOpts.inlineSvg),
+        // easingGradients(postcssOpts.easingGradients),
+        // autoprefixer(settings.app.autoprefixer),
       ], { from: undefined }))
       .pipe(gulp.dest(`${settings.paths.storage}/css`))
       .pipe(bsSP.stream())
@@ -600,8 +607,8 @@ module.exports = (opts) => {
       .pipe(sourcemaps.init())
       .pipe(sass(settings.app.bts['4'].sass))
       .pipe(postcss([
-        momentumScrolling(),
-        autoprefixer(settings.app.bts['4'].autoprefixer),
+        // momentumScrolling(),
+        // autoprefixer(settings.app.bts['4'].autoprefixer),
       ]))
       .pipe(sourcemaps.write('./'))
       .pipe(gulp.dest(settings.app.bts['4'].dest.css))
@@ -948,20 +955,20 @@ module.exports = (opts) => {
     'develop',
     gulp.series(
       'clean',
-      'static',
-      'iconizer:icons',
-      'iconizer:colored',
+      // 'static',
+      // 'iconizer:icons',
+      // 'iconizer:colored',
       'database',
       gulp.parallel(
         'nunjucks',
-        'scripts:vendors',
-        'scripts:plugins',
-        'scripts:others',
-        'styles:plugins',
-        'styles',
-        'bootstrap',
-      ),
-      'proxy-mod',
+        // 'scripts:vendors',
+        // 'scripts:plugins',
+        // 'scripts:others',
+        // 'styles:plugins',
+        // 'styles',
+        // 'bootstrap',
+      )
+      // 'proxy-mod',
     ),
   );
 
